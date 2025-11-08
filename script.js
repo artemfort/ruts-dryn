@@ -523,9 +523,22 @@ window.removeFriend = async function(friendId) {
 async function initiateCall(friendId, type) {
     try {
         // Always request both video and audio, but disable video if it's audio call
-        const constraints = { video: true, audio: true };
-        
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        // Проверяем наличие устройств
+const devices = await navigator.mediaDevices.enumerateDevices();
+const hasCamera = devices.some(d => d.kind === 'videoinput');
+const hasMic = devices.some(d => d.kind === 'audioinput');
+
+const constraints = {
+  video: hasCamera && type === 'video', // Включаем видео только если есть камера и тип = video
+  audio: hasMic,                        // Только если есть микрофон
+};
+
+if (!hasMic && !hasCamera) {
+  alert('Нет доступных устройств (камера/микрофон). Звонок будет без звука и видео.');
+}
+
+localStream = await navigator.mediaDevices.getUserMedia(constraints);
+
         
         // If audio call, disable video track initially
         if (type === 'audio') {
@@ -622,9 +635,21 @@ function showIncomingCall(caller, type) {
 async function acceptCall(caller, type) {
     try {
         // Always request both video and audio
-        const constraints = { video: true, audio: true };
-        
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const devices = await navigator.mediaDevices.enumerateDevices();
+const hasCamera = devices.some(d => d.kind === 'videoinput');
+const hasMic = devices.some(d => d.kind === 'audioinput');
+
+const constraints = {
+  video: hasCamera && type === 'video',
+  audio: hasMic,
+};
+
+if (!hasMic && !hasCamera) {
+  alert('Нет доступных устройств для звонка. Подключение будет без видео/аудио.');
+}
+
+localStream = await navigator.mediaDevices.getUserMedia(constraints);
+
         
         // If audio call, disable video track initially
         if (type === 'audio') {
