@@ -10,6 +10,15 @@ let isVideoEnabled = true;
 let isAudioEnabled = true;
 let isMuted = false;
 let isDeafened = false;
+let lastMediaConstraints = null;
+const DEFAULT_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
+];
+let iceServersConfig = [...DEFAULT_ICE_SERVERS];
 let currentUser = null;
 let socket = null;
 let token = null;
@@ -53,6 +62,7 @@ function initializeApp() {
     initializeFileUpload();
     initializeEmojiPicker();
     initializeDraggableCallWindow();
+    loadIceServers();
     connectToSocketIO();
     requestNotificationPermission();
     loadUserServers();
@@ -68,6 +78,61 @@ function requestNotificationPermission() {
 function showNotification(title, body) {
     if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(title, { body, icon: '/assets/icon.png' });
+    }
+}
+
+function loadIceServers() {
+    if (window.__ICE_SERVERS__ && Array.isArray(window.__ICE_SERVERS__)) {
+        iceServersConfig = window.__ICE_SERVERS__;
+    }
+    
+    if (!token) return;
+    
+    fetch('/api/ice-servers', {
+        headers: { 'Authorization': `Bearer ${token}` }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`ICE config request failed: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(payload => {
+        const servers = Array.isArray(payload) ? payload : payload?.iceServers;
+        if (Array.isArray(servers) && servers.length) {
+            iceServersConfig = servers;
+            console.log('Using ICE servers from API response');
+        }
+    })
+    .catch(error => {
+        console.warn('Falling back to default ICE servers:', error.message);
+    });
+}
+
+function hasLiveTracks(stream) {
+    return Boolean(stream && stream.getTracks().some(track => track.readyState === 'live'));
+}
+
+async function ensureLocalStream(constraintsOverride) {
+    if (hasLiveTracks(localStream)) {
+        return localStream;
+    }
+    
+    const fallbackConstraints = constraintsOverride || lastMediaConstraints || { audio: true, video: isVideoEnabled };
+    
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+        lastMediaConstraints = fallbackConstraints;
+        
+        const localVideo = document.getElementById('localVideo');
+        if (localVideo) {
+            localVideo.srcObject = localStream;
+        }
+        
+        return localStream;
+    } catch (error) {
+        console.error('Failed to (re)initialize local media stream:', error);
+        throw error;
     }
 }
 
@@ -115,17 +180,16 @@ function connectToSocketIO() {
         });
 
         // WebRTC Signaling
-        socket.on('user-joined-voice', (data) => {
+        socket.on('user-joined-voice', async (data) => {
             console.log('User joined voice:', data);
-            createPeerConnection(data.socketId, true);
+            await createPeerConnection(data.socketId, true);
         });
 
-        socket.on('existing-voice-users', (users) => {
-            users
-                .filter(Boolean)
-                .forEach(user => {
-                    createPeerConnection(user.socketId, false);
-                });
+        socket.on('existing-voice-users', async (users) => {
+            const existingUsers = (users || []).filter(Boolean);
+            for (const user of existingUsers) {
+                await createPeerConnection(user.socketId, false);
+            }
         });
 
         socket.on('user-left-voice', (socketId) => {
@@ -139,7 +203,7 @@ function connectToSocketIO() {
 
         socket.on('offer', async (data) => {
             if (!peerConnections[data.from]) {
-                createPeerConnection(data.from, false);
+                await createPeerConnection(data.from, false);
             }
             const pc = peerConnections[data.from];
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -211,14 +275,14 @@ function connectToSocketIO() {
             }
         });
 
-        socket.on('call-accepted', (data) => {
+        socket.on('call-accepted', async (data) => {
             console.log('Call accepted by:', data.from);
             // When call is accepted, create peer connection
             document.querySelector('.call-channel-name').textContent = `Connected with ${data.from.username}`;
             
             // Create peer connection as initiator
             if (!peerConnections[data.from.socketId]) {
-                createPeerConnection(data.from.socketId, true);
+                await createPeerConnection(data.from.socketId, true);
             }
         });
 
@@ -538,6 +602,8 @@ if (!hasMic && !hasCamera) {
 }
 
 localStream = await navigator.mediaDevices.getUserMedia(constraints);
+lastMediaConstraints = constraints;
+lastMediaConstraints = constraints;
 
         
         // If audio call, disable video track initially
@@ -693,7 +759,7 @@ localStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         // Create peer connection as receiver (not initiator)
         if (!peerConnections[caller.socketId]) {
-            createPeerConnection(caller.socketId, false);
+            await createPeerConnection(caller.socketId, false);
         }
         
         // Initialize resizable functionality after a short delay
@@ -1508,6 +1574,7 @@ async function initializeMedia() {
         };
         
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        lastMediaConstraints = constraints;
         
         const localVideo = document.getElementById('localVideo');
         localVideo.srcObject = localStream;
@@ -1837,7 +1904,7 @@ function populateDMList(friends) {
 }
 
 // WebRTC Functions
-function createPeerConnection(remoteSocketId, isInitiator) {
+async function createPeerConnection(remoteSocketId, isInitiator) {
     console.log(`Creating peer connection with ${remoteSocketId}, initiator: ${isInitiator}`);
     
     if (peerConnections[remoteSocketId]) {
@@ -1846,20 +1913,22 @@ function createPeerConnection(remoteSocketId, isInitiator) {
     }
     
     const pc = new RTCPeerConnection({
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' }
-        ],
+        iceServers: iceServersConfig && iceServersConfig.length ? iceServersConfig : DEFAULT_ICE_SERVERS,
         iceCandidatePoolSize: 10
     });
 
     peerConnections[remoteSocketId] = pc;
 
     // Add local stream tracks with better error handling
-    if (localStream) {
+    if (!hasLiveTracks(localStream)) {
+        try {
+            await ensureLocalStream();
+        } catch (error) {
+            console.error('Unable to obtain local stream before creating peer connection:', error);
+        }
+    }
+    
+    if (localStream && hasLiveTracks(localStream)) {
         const audioTracks = localStream.getAudioTracks();
         const videoTracks = localStream.getVideoTracks();
         
@@ -1877,7 +1946,7 @@ function createPeerConnection(remoteSocketId, isInitiator) {
             pc.addTrack(track, localStream);
         });
     } else {
-        console.error('No local stream available');
+        console.error('No local stream available to share with peer');
     }
 
     // Handle ICE candidates
