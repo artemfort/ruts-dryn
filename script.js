@@ -1908,6 +1908,10 @@ function createPeerConnection(remoteSocketId, isInitiator) {
         console.log('Received remote track:', event.track.kind, 'Stream ID:', event.streams[0]?.id);
         
         const remoteParticipants = document.getElementById('remoteParticipants');
+        if (!remoteParticipants) {
+            console.warn('remoteParticipants container not found');
+            return;
+        }
         
         let participantDiv = document.getElementById(`participant-${remoteSocketId}`);
         let remoteVideo = document.getElementById(`remote-${remoteSocketId}`);
@@ -1932,17 +1936,14 @@ function createPeerConnection(remoteSocketId, isInitiator) {
             remoteParticipants.appendChild(participantDiv);
         }
         
-        // Set the stream to the video element
         if (event.streams && event.streams[0]) {
             console.log('Setting remote stream to video element');
             remoteVideo = document.getElementById(`remote-${remoteSocketId}`);
             if (remoteVideo) {
                 remoteVideo.srcObject = event.streams[0];
                 
-                // Ensure audio is playing
                 remoteVideo.play().catch(e => {
                     console.error('Error playing remote video:', e);
-                    // Try to play after user interaction
                     document.addEventListener('click', () => {
                         remoteVideo.play().catch(err => console.error('Still cannot play:', err));
                     }, { once: true });
@@ -1950,172 +1951,10 @@ function createPeerConnection(remoteSocketId, isInitiator) {
             }
         }
         
-        // Initialize resizable videos
-        function initializeResizableVideos() {
-            const callInterface = document.getElementById('callInterface');
-            const participants = callInterface.querySelectorAll('.participant');
-            
-            participants.forEach(participant => {
-                makeResizable(participant);
-            });
-            
-            // Make call interface resizable too
-            makeInterfaceResizable(callInterface);
-        }
-        
-        // Make individual video resizable
-        function makeResizable(element) {
-            // Add resize handle
-            const resizeHandle = document.createElement('div');
-            resizeHandle.className = 'resize-handle';
-            resizeHandle.innerHTML = '↘';
-            resizeHandle.style.cssText = `
-                position: absolute;
-                bottom: 5px;
-                right: 5px;
-                width: 20px;
-                height: 20px;
-                background: rgba(255,255,255,0.3);
-                cursor: nwse-resize;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 3px;
-                font-size: 12px;
-                color: white;
-                user-select: none;
-            `;
-            
-            // Add video size controls
-            const sizeControls = document.createElement('div');
-            sizeControls.className = 'video-size-controls';
-            sizeControls.innerHTML = `
-                <button class="size-control-btn minimize-btn" title="Minimize">_</button>
-                <button class="size-control-btn maximize-btn" title="Maximize">□</button>
-                <button class="size-control-btn fullscreen-btn" title="Fullscreen">⛶</button>
-            `;
-            
-            if (!element.querySelector('.resize-handle')) {
-                element.appendChild(resizeHandle);
-                element.appendChild(sizeControls);
-                element.style.resize = 'both';
-                element.style.overflow = 'auto';
-                element.style.minWidth = '150px';
-                element.style.minHeight = '100px';
-                element.style.maxWidth = '90vw';
-                element.style.maxHeight = '90vh';
-                element.setAttribute('data-resizable', 'true');
-                
-                // Add double-click for fullscreen
-                element.addEventListener('dblclick', function(e) {
-                    if (!e.target.closest('.video-size-controls')) {
-                        toggleVideoFullscreen(element);
-                    }
-                });
-                
-                // Size control buttons
-                const minimizeBtn = sizeControls.querySelector('.minimize-btn');
-                const maximizeBtn = sizeControls.querySelector('.maximize-btn');
-                const fullscreenBtn = sizeControls.querySelector('.fullscreen-btn');
-                
-                minimizeBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    element.classList.toggle('minimized');
-                    element.classList.remove('maximized');
-                });
-                
-                maximizeBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    element.classList.toggle('maximized');
-                    element.classList.remove('minimized');
-                });
-                
-                fullscreenBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const video = element.querySelector('video');
-                    if (video && video.requestFullscreen) {
-                        video.requestFullscreen();
-                    }
-                });
-            }
-        }
-        
-        // Toggle video fullscreen
-        function toggleVideoFullscreen(element) {
-            element.classList.toggle('maximized');
-            if (element.classList.contains('maximized')) {
-                element.classList.remove('minimized');
-            }
-        }
-        
-        // Make call interface resizable
-        function makeInterfaceResizable(callInterface) {
-            const resizeHandle = document.createElement('div');
-            resizeHandle.className = 'interface-resize-handle';
-            resizeHandle.style.cssText = `
-                position: absolute;
-                bottom: 0;
-                right: 0;
-                width: 15px;
-                height: 15px;
-                cursor: nwse-resize;
-                background: linear-gradient(135deg, transparent 50%, #5865f2 50%);
-                border-bottom-right-radius: 12px;
-            `;
-            
-            if (!callInterface.querySelector('.interface-resize-handle')) {
-                callInterface.appendChild(resizeHandle);
-                
-                let isResizing = false;
-                let startWidth = 0;
-                let startHeight = 0;
-                let startX = 0;
-                let startY = 0;
-                
-                resizeHandle.addEventListener('mousedown', (e) => {
-                    isResizing = true;
-                    startWidth = parseInt(document.defaultView.getComputedStyle(callInterface).width, 10);
-                    startHeight = parseInt(document.defaultView.getComputedStyle(callInterface).height, 10);
-                    startX = e.clientX;
-                    startY = e.clientY;
-                    e.preventDefault();
-                });
-                
-                document.addEventListener('mousemove', (e) => {
-                    if (!isResizing) return;
-                    
-                    const newWidth = startWidth + e.clientX - startX;
-                    const newHeight = startHeight + e.clientY - startY;
-                    
-                    if (newWidth > 300 && newWidth < window.innerWidth * 0.9) {
-                        callInterface.style.width = newWidth + 'px';
-                    }
-                    if (newHeight > 200 && newHeight < window.innerHeight * 0.9) {
-                        callInterface.style.height = newHeight + 'px';
-                    }
-                });
-                
-                document.addEventListener('mouseup', () => {
-                    isResizing = false;
-                });
-            }
-        }
-        
-        // Update resizable functionality when new participants join
-        const originalOntrack = RTCPeerConnection.prototype.ontrack;
-        window.observeNewParticipants = function() {
-            setTimeout(() => {
-                const participants = document.querySelectorAll('.participant:not([data-resizable])');
-                participants.forEach(participant => {
-                    participant.setAttribute('data-resizable', 'true');
-                    makeResizable(participant);
-                });
-            }, 500);
-        };
-        
-        // Make the new participant video resizable after a short delay
         setTimeout(() => {
-            if (typeof makeResizable === 'function' && participantDiv) {
+            if (typeof initializeResizableVideos === 'function') {
+                initializeResizableVideos();
+            } else if (typeof makeResizable === 'function' && participantDiv) {
                 makeResizable(participantDiv);
             }
         }, 100);
