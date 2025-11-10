@@ -145,7 +145,7 @@ function connectToSocketIO() {
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            socket.emit('answer', { to: data.from, answer: answer });
+            socket.emit('answer', { to: data.from, answer: answer, from: socket.id });
         });
 
         socket.on('answer', async (data) => {
@@ -1618,10 +1618,11 @@ function toggleVideo() {
     // Notify peer about video state change
     Object.keys(peerConnections).forEach(socketId => {
         if (socket && socket.connected) {
-            socket.emit('video-toggle', {
-                to: socketId,
-                enabled: isVideoEnabled
-            });
+        socket.emit('video-toggle', {
+            to: socketId,
+            enabled: isVideoEnabled,
+            from: socket.id
+        });
         }
     });
     
@@ -1885,7 +1886,8 @@ function createPeerConnection(remoteSocketId, isInitiator) {
             console.log('Sending ICE candidate');
             socket.emit('ice-candidate', {
                 to: remoteSocketId,
-                candidate: event.candidate
+                candidate: event.candidate,
+                from: socket.id
             });
         }
     };
@@ -1971,7 +1973,8 @@ function createPeerConnection(remoteSocketId, isInitiator) {
             console.log('Sending offer to:', remoteSocketId);
             socket.emit('offer', {
                 to: remoteSocketId,
-                offer: pc.localDescription
+                offer: pc.localDescription,
+                from: socket.id
             });
         })
         .catch(error => {
